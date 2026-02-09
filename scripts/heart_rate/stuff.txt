@@ -1,0 +1,5 @@
+# when running the i2c_tool
+
+i2cconfig --port 1 --freq 400 --sda 21 --scl 22
+i2cget -c 0x57 -r 0x00 -l 2
+i2cdetect
