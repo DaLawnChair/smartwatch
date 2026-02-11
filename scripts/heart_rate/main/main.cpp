@@ -3,6 +3,9 @@
 #include <cstdio>
 #include <cstdint>
 #include <utility> // for std::move
+#include <iostream> 
+#include <chrono>
+
 extern "C" {
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -112,7 +115,7 @@ static esp_err_t max30102_soft_reset(i2c_master_dev_handle_t dev_handle) {
     }
     return ESP_ERR_TIMEOUT;
 }
-static esp_err_t max30102_init(i2c_master_bus_handle_t bus_handle, i2c_master_dev_handle_t dev_handle){
+static esp_err_t max30102_init(i2c_master_bus_handle_t& bus_handle, i2c_master_dev_handle_t& dev_handle){
     i2c_master_init_bus(&bus_handle);
     i2c_master_device_init(&bus_handle, &dev_handle, MAX30102_ADDR);
 
@@ -218,12 +221,11 @@ static esp_err_t max30102_read_one(uint32_t* red, uint32_t* ir, i2c_master_dev_h
 // ---------- app_main ----------
 extern "C" void app_main(void) {
     ESP_LOGI(TAG, "Booting...");
-    /*i2c_master_bus_handle_t bus_handle;*/
-    /*i2c_master_dev_handle_t dev_handle;*/
 
     I2C_Object i2c_handles = I2C_Object();
 
     esp_err_t err = max30102_init(i2c_handles.bus_handle, i2c_handles.dev_handle);
+
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "MAX30102 init failed: %s", esp_err_to_name(err));
         ESP_LOGE(TAG, "Check wiring + VIN=3.3V + addr=0x57");
@@ -231,6 +233,8 @@ extern "C" void app_main(void) {
     }
 
 
+    std::chrono::steady_clock::time_point last_beat = std::chrono::steady_clock::now();
+ 
     while (true) {
         uint8_t n = 0;
         err = max30102_fifo_unread(&n, i2c_handles.dev_handle);
@@ -240,14 +244,21 @@ extern "C" void app_main(void) {
             continue;
         }
 
-        if (n == 0) {
-            vTaskDelay(pdMS_TO_TICKS(20));
-            continue;
-        }
+        /*if (n == 0) {*/
+        /*    std::printf("Waiting for new data\n");*/
+        /*    vTaskDelay(pdMS_TO_TICKS(500));*/
+        /*    continue;*/
+        /*}*/
 
         // Read a few samples per loop to avoid excessive serial spam
         uint8_t to_read = (n > 5) ? 5 : n;
-        for (uint8_t i = 0; i < to_read; i++) {
+        std::chrono::steady_clock::time_point curr_beat = std::chrono::steady_clock::now();
+ 
+        std::chrono::milliseconds delta = std::chrono::duration_cast<std::chrono::milliseconds>(curr_beat-last_beat);
+        last_beat = curr_beat;
+        auto beats_per_minute = 60 / ( delta.count() / 1000.0L); //[][]
+        
+        for (uint8_t i = 0; i < n; i++) {
             uint32_t red = 0, ir = 0;
             err = max30102_read_one(&red, &ir, i2c_handles.dev_handle);
             if (err != ESP_OK) {
@@ -255,9 +266,12 @@ extern "C" void app_main(void) {
                 break;
             }
             std::printf("RED=%lu  IR=%lu\n", (unsigned long)red, (unsigned long)ir);
+            std::printf("BPM=%lu\n", (long) beats_per_minute);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(50));
+        std::printf("Done %i\n", n);
+
+        /*vTaskDelay(pdMS_TO_TICKS(50));*/
     }
 
 
