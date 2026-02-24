@@ -56,7 +56,8 @@ public:
     void set_up_gpio();
     void set_delay(int delay);
     void start();
-    void update_clock();
+    void run();
+    void pause_unpause();
     void end();
 };
 
@@ -66,7 +67,7 @@ Vibrator::Vibrator() :
 {
     set_up_gpio();
     set_delay(1000);
-    thread_ = std::thread(&Vibrator::update_clock,this);
+    thread_ = std::thread(&Vibrator::run,this);
 };
 
 void Vibrator::set_up_gpio(){
@@ -89,19 +90,24 @@ void Vibrator::set_delay(int delay){
     delay_ = delay;
 };
 
-void Vibrator::update_clock(){
+void Vibrator::pause_unpause(){
+    std::unique_lock<std::mutex> lock(mtx_);
+    status_ = !status_;
+    std::cout << "pause upause status " << status_ << '\n'; 
+    cv_.notify_one();
+};
+
+void Vibrator::run(){
     int cnt=0;
     while(true){
         {
             std::unique_lock<std::mutex> lock(mtx_);
-            cv_.wait(lock, [this]{ return status_==true || exit_status_==true;});
-            if(exit_status_==true) {break;}
- 
-            std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
-            gpio_set_level(GPIO_OUTPUT_IO_0, cnt % 2);
-            cnt++;
-
+            cv_.wait(lock, [this]{ return status_ || exit_status_;});
+            if(exit_status_) {break;}
         }
+        std::this_thread::sleep_for(std::chrono::milliseconds(delay_));
+        gpio_set_level(GPIO_OUTPUT_IO_0, cnt % 2);
+        cnt++;
     }
 };
 
@@ -111,7 +117,6 @@ void Vibrator::start(){
        status_ = true;
     }
     cv_.notify_one(); 
-    update_clock();
 };
 
 void Vibrator::end(){
@@ -144,12 +149,16 @@ extern "C" void app_main(void)
     /*gpio_config(&io_conf);*/
 
     Vibrator vibrator = Vibrator();
+    std::cout << "lol\n";
     vibrator.start();
 
-    while (1) {
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
-        /*gpio_set_level(GPIO_OUTPUT_IO_0, cnt % 2);*/
+    /*std::this_thread::sleep_for(std::chrono::milliseconds(5000));*/
+    /*std::cout << "end now\n";*/
+    /*vibrator.end();*/
 
-        /*gpio_set_level(GPIO_OUTPUT_IO_1, cnt % 2);*/
+    while (1) {
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(5000));
+        vibrator.pause_unpause();
     }
 }
